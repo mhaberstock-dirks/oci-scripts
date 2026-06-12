@@ -1,4 +1,4 @@
-﻿[
+[
     "Allow group Grp-ADB-Dev-Admins to manage autonomous-database-family in compartment Markus_Dev",
     "Allow group Grp-ADB-Dev-Admins to manage autonomous-backups in compartment Markus_Dev",
     "Allow group Grp-ADB-Dev-Admins to use virtual-network-family in compartment Markus_Dev"

@@ -95,7 +95,7 @@ $statements = @(
     "Allow group $groupRef to use virtual-network-family in compartment $CompartmentName"
 )
 
-$statements | ConvertTo-Json | Out-File -Encoding utf8 $statementsPath
+$statements | ConvertTo-Json | Set-Content -Path $statementsPath -Encoding ascii
 Write-Host "`nStatements-Datei erzeugt: $statementsPath" -ForegroundColor Green
 Get-Content $statementsPath
 
