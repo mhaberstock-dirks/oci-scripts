@@ -3,3 +3,4 @@
 config
 .oci/
 secrets.ps1
+wallet/
