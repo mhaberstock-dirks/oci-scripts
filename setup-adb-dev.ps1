@@ -54,7 +54,7 @@ if (-not (Test-Path $configPath)) {
 $tenancyId = (Get-Content $configPath | Select-String "^tenancy=").ToString().Split("=")[1].Trim()
 
 Write-Host "=== Identity Domains ===" -ForegroundColor Cyan
-oci iam domain list --compartment-id $tenancyId --query "data[*].{Name:`"display-name`", URL:url}" --output table
+oci iam domain list --compartment-id $tenancyId
 
 Write-Host "`n=== Compartments ===" -ForegroundColor Cyan
 oci iam compartment list --query "data[*].{Name:name, OCID:id}" --output table
