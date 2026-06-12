@@ -54,17 +54,20 @@ if (-not (Test-Path $configPath)) {
 $tenancyId = (Get-Content $configPath | Select-String "^tenancy=").ToString().Split("=")[1].Trim()
 
 Write-Host "=== Identity Domains ===" -ForegroundColor Cyan
-oci iam domain list --compartment-id $tenancyId
+$domains = (oci iam domain list --compartment-id $tenancyId | ConvertFrom-Json).data
+$domains | Select-Object @{N='Name';E={$_.'display-name'}}, url | Format-Table -AutoSize
 
 Write-Host "`n=== Compartments ===" -ForegroundColor Cyan
-oci iam compartment list --query "data[*].{Name:name, OCID:id}" --output table
+$compartments = (oci iam compartment list | ConvertFrom-Json).data
+$compartments | Select-Object name, id | Format-Table -AutoSize
 
 Write-Host "`n=== Groups ===" -ForegroundColor Cyan
-oci iam group list --query "data[*].{Name:name, OCID:id}" --output table
+$groups = (oci iam group list | ConvertFrom-Json).data
+$groups | Select-Object name, id | Format-Table -AutoSize
 
 # --- OCIDs ermitteln ---------------------------------------------------------
-$devCompId = oci iam compartment list --query "data[?name=='$CompartmentName'].id" --raw-output | Select-Object -First 1
-$groupId   = oci iam group list --query "data[?name=='$GroupName'].id" --raw-output | Select-Object -First 1
+$devCompId = ($compartments | Where-Object { $_.name -eq $CompartmentName }).id
+$groupId   = ($groups | Where-Object { $_.name -eq $GroupName }).id
 
 if (-not $devCompId) { throw "Compartment '$CompartmentName' nicht gefunden." }
 if (-not $groupId)   { throw "Gruppe '$GroupName' nicht gefunden." }
@@ -102,7 +105,8 @@ if ($WhatIfOnly) {
 }
 
 # --- Pruefen, ob Policy bereits existiert ------------------------------------
-$existing = oci iam policy list --compartment-id $devCompId --query "data[?name=='$PolicyName'].id" --raw-output | Select-Object -First 1
+$policies = (oci iam policy list --compartment-id $devCompId | ConvertFrom-Json).data
+$existing = ($policies | Where-Object { $_.name -eq $PolicyName }).id
 
 if ($existing) {
     Write-Host "`nPolicy '$PolicyName' existiert bereits (OCID: $existing)." -ForegroundColor Yellow
