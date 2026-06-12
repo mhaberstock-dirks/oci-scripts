@@ -18,39 +18,61 @@ oci-scripts/
 ├── .gitignore
 ├── README.md
 ├── setup-adb-dev.ps1       # Validierung + Policy-Setup
-└── policies/
-    └── *.json              # generierte Policy-Statements (auto-generiert)
+├── create-adb-dev.ps1      # Provisionierung der Always-Free ADB
+├── get-adb-wallet.ps1      # Download des ADB-Wallets
+├── policies/
+│   └── *.json              # generierte Policy-Statements (auto-generiert)
+└── wallet/                 # Wallet-ZIPs + Inhalte (.gitignore)
+    └── <DbName>/
+        ├── wallet_<DbName>.zip
+        └── contents/       # entpackt (nur bei -Unzip)
 ```
 
 ## Nutzung
 
-### Standard (mit Default-Werten)
+### 1. Policy-Setup (einmalig)
 
 ```powershell
 .\setup-adb-dev.ps1
+# Trockenlauf:
+.\setup-adb-dev.ps1 -WhatIfOnly
 ```
 
-Defaults:
-- Compartment: `Markus_Dev`
-- Group: `Grp-ADB-Dev-Admins`
-- Policy-Name: `Policy-ADB-Dev-Admins`
+Defaults: Compartment `Markus_Dev`, Group `Grp-ADB-Dev-Admins`, Policy `Policy-ADB-Dev-Admins`
 
-### Mit anderen Namen
+### 2. ADB provisionieren (idempotent)
+
+```powershell
+.\create-adb-dev.ps1
+# Mit IP-Whitelist (ACL):
+.\create-adb-dev.ps1 -WhitelistIPs @("203.0.113.0/24")
+# Ohne Warten auf AVAILABLE:
+.\create-adb-dev.ps1 -NoWait
+# Trockenlauf:
+.\create-adb-dev.ps1 -WhatIfOnly
+```
+
+Defaults: Compartment `Markus_Dev`, DisplayName `ADB-Dev`, DbName `ADBDEV`, Workload `OLTP`
+
+### 3. Wallet herunterladen
+
+```powershell
+# Per Compartment + DbName (Default):
+.\get-adb-wallet.ps1
+# Per OCID (direkt aus create-adb-dev.ps1-Ausgabe):
+.\get-adb-wallet.ps1 -AdbOcid "ocid1.autonomousdatabase.oc1..."
+# Mit automatischem Entpacken:
+.\get-adb-wallet.ps1 -Unzip
+# Trockenlauf:
+.\get-adb-wallet.ps1 -WhatIfOnly
+```
+
+### setup-adb-dev.ps1 – weitere Optionen
 
 ```powershell
 .\setup-adb-dev.ps1 -CompartmentName "Anderes_Compartment" -GroupName "Andere_Gruppe" -PolicyName "Andere_Policy"
-```
-
-### Falls der Tenant benannte Identity Domains nutzt
-
-```powershell
+# Falls der Tenant benannte Identity Domains nutzt:
 .\setup-adb-dev.ps1 -DomainPrefix "MeinDomainName"
-```
-
-### Trockenlauf (nur anzeigen, nichts anlegen)
-
-```powershell
-.\setup-adb-dev.ps1 -WhatIfOnly
 ```
 
 ## Was das Skript tut
@@ -79,6 +101,6 @@ Allow group <Group> to use virtual-network-family in compartment <Compartment>
 
 ## Nächste Schritte (TODO)
 
-- [ ] Skript zur Provisionierung der Always-Free ADB
-- [ ] Skript zum Download des Wallets
+- [x] Skript zur Provisionierung der Always-Free ADB
+- [x] Skript zum Download des Wallets
 - [ ] Skript zur Validierung der DB-Verbindung
