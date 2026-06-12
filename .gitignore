@@ -1,0 +1,5 @@
+# .gitignore
+*.pem
+config
+.oci/
+secrets.ps1
