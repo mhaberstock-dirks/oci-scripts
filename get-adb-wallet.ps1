@@ -35,7 +35,7 @@
     Wenn gesetzt, wird das Wallet-ZIP nach dem Download in den Unterordner
     wallet\<DbName>\contents\ entpackt.
 
-.PARAMETER WhatIfOnly
+.PARAMETER WhatIf
     Trockenlauf: zeigt alle Parameter an, laedt aber kein Wallet herunter.
 
 .EXAMPLE
@@ -45,7 +45,7 @@
     .\get-adb-wallet.ps1 -AdbOcid "ocid1.autonomousdatabase.oc1..." -Unzip
 
 .EXAMPLE
-    .\get-adb-wallet.ps1 -DbName "ADBDEV" -WalletDir "C:\myapp\wallet" -WhatIfOnly
+    .\get-adb-wallet.ps1 -DbName "ADBDEV" -WalletDir "C:\myapp\wallet" -WhatIf
 #>
 
 param(
@@ -55,7 +55,7 @@ param(
     [string]$WalletDir       = "",
     [securestring]$WalletPassword,
     [switch]$Unzip,
-    [switch]$WhatIfOnly
+    [switch]$WhatIf
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,14 +95,15 @@ if (-not $WalletDir) {
 $walletZip = Join-Path $WalletDir "wallet_$resolvedDbName.zip"
 
 # --- Parameter anzeigen ---------------------------------------------------
+$unzipText = if ($Unzip) { "ja  (-> wallet\$resolvedDbName\contents\)" } else { 'nein' }
 Write-Host "`n=== Wallet-Parameter ===" -ForegroundColor Cyan
 Write-Host "  ADB-OCID        : $AdbOcid"
 Write-Host "  Zielverzeichnis : $WalletDir"
 Write-Host "  ZIP-Datei       : $walletZip"
-Write-Host "  Entpacken       : $(if ($Unzip) {"ja  (-> wallet\$resolvedDbName\contents\"} else {'nein'})"
+Write-Host "  Entpacken       : $unzipText"
 
-if ($WhatIfOnly) {
-    Write-Host "`n-WhatIfOnly gesetzt: Wallet wird NICHT heruntergeladen." -ForegroundColor Yellow
+if ($WhatIf) {
+    Write-Host "`n-WhatIf gesetzt: Wallet wird NICHT heruntergeladen." -ForegroundColor Yellow
     return
 }
 
@@ -133,7 +134,7 @@ oci db autonomous-database generate-wallet `
 $pwPlain = $null
 
 if (-not (Test-Path $walletZip)) {
-    throw "Wallet-Download fehlgeschlagen – Datei nicht gefunden: $walletZip"
+    throw "Wallet-Download fehlgeschlagen - Datei nicht gefunden: $walletZip"
 }
 $walletSizeKB = [math]::Round((Get-Item $walletZip).Length / 1KB, 1)
 Write-Host "Wallet gespeichert: $walletZip ($walletSizeKB KB)" -ForegroundColor Green

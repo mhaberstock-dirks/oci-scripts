@@ -36,14 +36,14 @@
     Wenn gesetzt, wartet das Skript nicht auf State AVAILABLE.
     Die Provisionierung laeuft im Hintergrund; Fortschritt in der OCI Console sichtbar.
 
-.PARAMETER WhatIfOnly
+.PARAMETER WhatIf
     Trockenlauf: zeigt alle Parameter an, legt aber keine ADB an.
 
 .EXAMPLE
     .\create-adb-dev.ps1
 
 .EXAMPLE
-    .\create-adb-dev.ps1 -WhitelistIPs @("203.0.113.0/24") -WhatIfOnly
+    .\create-adb-dev.ps1 -WhitelistIPs @("203.0.113.0/24") -WhatIf
 
 .EXAMPLE
     .\create-adb-dev.ps1 -DisplayName "MyADB" -DbName "MYADB" -NoWait
@@ -57,9 +57,8 @@ param(
     [string[]]$WhitelistIPs  = @(),
     [securestring]$AdminPassword,
     [switch]$NoWait,
-    [switch]$WhatIfOnly
+    [switch]$WhatIf 
 )
-
 $ErrorActionPreference = "Stop"
 
 # --- Konfiguration pruefen ------------------------------------------------
@@ -93,8 +92,8 @@ if ($WhitelistIPs.Count -gt 0) {
 }
 Write-Host "  Warten       : $(if ($NoWait) {'nein (-NoWait)'} else {'ja  (bis AVAILABLE, max. 20 min)'})"
 
-if ($WhatIfOnly) {
-    Write-Host "`n-WhatIfOnly gesetzt: ADB wird NICHT angelegt." -ForegroundColor Yellow
+if ($WhatIf) {
+    Write-Host "`n-WhatIf gesetzt: ADB wird NICHT angelegt." -ForegroundColor Yellow
     return
 }
 
@@ -118,7 +117,7 @@ if ($existing) {
     Write-Host "Keine Aenderung vorgenommen." -ForegroundColor Green
     return
 }
-Write-Host "Keine vorhandene ADB '$DbName' gefunden – wird neu angelegt."
+Write-Host "Keine vorhandene ADB '$DbName' gefunden - wird neu angelegt."
 
 # --- Passwort in Klartext (nur fuer den CLI-Aufruf, danach freigegeben) ---
 $bstr    = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($AdminPassword)
@@ -152,7 +151,7 @@ if (-not $NoWait) {
 # --- ADB anlegen ----------------------------------------------------------
 Write-Host "`n=== Autonomous Database wird angelegt ===" -ForegroundColor Cyan
 if (-not $NoWait) {
-    Write-Host "Bitte warten – Provisionierung kann bis zu 20 Minuten dauern..." -ForegroundColor Yellow
+    Write-Host "Bitte warten - Provisionierung kann bis zu 20 Minuten dauern..." -ForegroundColor Yellow
 }
 
 $adb     = (& oci @ociArgs | ConvertFrom-Json).data
