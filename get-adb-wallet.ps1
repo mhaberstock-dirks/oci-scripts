@@ -1,23 +1,30 @@
 <#
 .SYNOPSIS
-    Laedt das Wallet (TLS-Zertifikate + Connection-Strings) fuer eine
-    Autonomous Database herunter.
+    Laedt das Wallet-ZIP fuer eine Autonomous Database herunter und erzeugt
+    passende TNSNAMES.ORA-Eintraege mit MY_WALLET_DIR-Direktive.
 
 .DESCRIPTION
     Das Skript:
       1. Ermittelt die ADB-OCID (direkt per -AdbOcid oder per Compartment + DbName)
-      2. Laedt das Wallet als ZIP nach wallet\<DbName>\wallet_<DbName>.zip
-      3. Optional: entpackt das Wallet in wallet\<DbName>\contents\ (-Unzip)
+      2. Laedt das Wallet als ZIP nach <WalletDir>\wallet_<DbName>.zip
+      3. Liest die Verbindungsstrings aus der OCI API
+      4. Schreibt <WalletDir>\tnsnames_entries.txt  -- TNS-Eintraege mit MY_WALLET_DIR
+         und <WalletDir>\sqlnet_safe.txt            -- sicherer SQLNET.ORA-Block
 
-    Das Wallet enthaelt sensitive Dateien (Zertifikate, Verbindungsinformationen).
-    Das Verzeichnis wallet\ ist per .gitignore vom Repository ausgeschlossen.
+    Die Integration in eine bestehende Oracle Net-Konfiguration (tnsnames.ora,
+    sqlnet.ora) erfolgt manuell. Das Entpacken des Wallet-ZIP ebenfalls.
+    MY_WALLET_DIR erlaubt datenbankspezifische Wallet-Verzeichnisse ohne globale
+    WALLET_LOCATION in sqlnet.ora (setzt Oracle Client 19c oder hoeher voraus).
+
+    Das Wallet-Verzeichnis enthaelt sensitive Dateien und ist per .gitignore
+    vom Repository ausgeschlossen.
 
 .PARAMETER AdbOcid
     OCID der Autonomous Database. Wenn angegeben, werden CompartmentName und
     DbName fuer die Suche nicht benoetigt.
 
 .PARAMETER CompartmentName
-    Name des Compartments, in dem die ADB liegt (Default: Markus_Dev).
+    Name des Compartments (Default: Markus_Dev).
     Wird ignoriert, wenn AdbOcid angegeben ist.
 
 .PARAMETER DbName
@@ -25,15 +32,14 @@
     Wird ignoriert, wenn AdbOcid angegeben ist.
 
 .PARAMETER WalletDir
-    Zielverzeichnis fuer das Wallet (Default: .\wallet\<DbName>)
+    Zielverzeichnis fuer Wallet-ZIP und Hilfsdateien.
+    Default: .\wallet\<DbName>
+    Dieses Verzeichnis wird auch als MY_WALLET_DIR in den TNS-Eintraegen
+    verwendet – ZIP dort entpacken, bevor Verbindungen hergestellt werden.
 
 .PARAMETER WalletPassword
     Passwort zum Schutz des Wallet-ZIP (min. 8 Zeichen, mind. 1 Buchstabe + 1 Ziffer).
     Wird interaktiv abgefragt, wenn nicht angegeben.
-
-.PARAMETER Unzip
-    Wenn gesetzt, wird das Wallet-ZIP nach dem Download in den Unterordner
-    wallet\<DbName>\contents\ entpackt.
 
 .PARAMETER WhatIf
     Trockenlauf: zeigt alle Parameter an, laedt aber kein Wallet herunter.
@@ -42,10 +48,10 @@
     .\get-adb-wallet.ps1
 
 .EXAMPLE
-    .\get-adb-wallet.ps1 -AdbOcid "ocid1.autonomousdatabase.oc1..." -Unzip
+    .\get-adb-wallet.ps1 -AdbOcid "ocid1.autonomousdatabase.oc1..."
 
 .EXAMPLE
-    .\get-adb-wallet.ps1 -DbName "ADBDEV" -WalletDir "C:\myapp\wallet" -WhatIf
+    .\get-adb-wallet.ps1 -WalletDir "C:\oracle\wallets\ADBDEV" -WhatIf
 #>
 
 param(
@@ -54,7 +60,6 @@ param(
     [string]$DbName          = "ADBDEV",
     [string]$WalletDir       = "",
     [securestring]$WalletPassword,
-    [switch]$Unzip,
     [switch]$WhatIf
 )
 
@@ -66,41 +71,42 @@ if (-not (Test-Path $configPath)) {
     throw "OCI Config nicht gefunden unter $configPath. Bitte zuerst 'oci setup config' ausfuehren."
 }
 
-# --- ADB-OCID ermitteln (falls nicht direkt angegeben) --------------------
+# --- ADB-OCID ermitteln ---------------------------------------------------
 if (-not $AdbOcid) {
     Write-Host "=== Suche ADB '$DbName' in Compartment '$CompartmentName' ===" -ForegroundColor Cyan
-
     $compartments = (oci iam compartment list | ConvertFrom-Json).data
     $devCompId    = ($compartments | Where-Object { $_.name -eq $CompartmentName }).id
     if (-not $devCompId) { throw "Compartment '$CompartmentName' nicht gefunden." }
 
-    $dbs    = (oci db autonomous-database list --compartment-id $devCompId | ConvertFrom-Json).data
-    $adbObj = $dbs | Where-Object { $_.'db-name' -eq $DbName }
-    if (-not $adbObj) { throw "ADB mit DB-Name '$DbName' nicht gefunden in Compartment '$CompartmentName'." }
-
-    $AdbOcid        = $adbObj.id
-    $resolvedDbName = $adbObj.'db-name'
-    Write-Host "ADB gefunden: $($adbObj.'display-name') (OCID: $AdbOcid, State: $($adbObj.'lifecycle-state'))"
+    $dbs        = (oci db autonomous-database list --compartment-id $devCompId | ConvertFrom-Json).data
+    $adbSummary = $dbs | Where-Object { $_.'db-name' -eq $DbName }
+    if (-not $adbSummary) { throw "ADB mit DB-Name '$DbName' nicht gefunden in '$CompartmentName'." }
+    $AdbOcid = $adbSummary.id
 } else {
     Write-Host "=== ADB-OCID direkt angegeben ===" -ForegroundColor Cyan
-    $adbObj         = (oci db autonomous-database get --autonomous-database-id $AdbOcid | ConvertFrom-Json).data
-    $resolvedDbName = if ($DbName -ne "ADBDEV" -or -not $DbName) { $DbName } else { $adbObj.'db-name' }
-    Write-Host "ADB: $($adbObj.'display-name') / $($adbObj.'db-name') (State: $($adbObj.'lifecycle-state'))"
 }
 
-# --- Wallet-Pfad bestimmen ------------------------------------------------
+# --- Vollstaendige ADB-Infos inkl. Connection-Strings laden ---------------
+Write-Host "Lade ADB-Konfiguration..." -ForegroundColor Cyan
+$adbFull        = (oci db autonomous-database get --autonomous-database-id $AdbOcid | ConvertFrom-Json).data
+$resolvedDbName = $adbFull.'db-name'
+Write-Host "ADB: $($adbFull.'display-name') / $resolvedDbName (State: $($adbFull.'lifecycle-state'))"
+
+# --- Pfade bestimmen ------------------------------------------------------
 if (-not $WalletDir) {
     $WalletDir = Join-Path $PSScriptRoot "wallet\$resolvedDbName"
 }
-$walletZip = Join-Path $WalletDir "wallet_$resolvedDbName.zip"
+$walletZip     = Join-Path $WalletDir "wallet_$resolvedDbName.zip"
+$tnsOutputPath = Join-Path $WalletDir "tnsnames_entries.txt"
+$sqlnetOutPath = Join-Path $WalletDir "sqlnet_safe.txt"
 
 # --- Parameter anzeigen ---------------------------------------------------
-$unzipText = if ($Unzip) { "ja  (-> wallet\$resolvedDbName\contents\)" } else { 'nein' }
 Write-Host "`n=== Wallet-Parameter ===" -ForegroundColor Cyan
 Write-Host "  ADB-OCID        : $AdbOcid"
-Write-Host "  Zielverzeichnis : $WalletDir"
-Write-Host "  ZIP-Datei       : $walletZip"
-Write-Host "  Entpacken       : $unzipText"
+Write-Host "  Wallet-ZIP      : $walletZip"
+Write-Host "  MY_WALLET_DIR   : $WalletDir  (ZIP dort entpacken)"
+Write-Host "  TNS-Eintraege   : $tnsOutputPath"
+Write-Host "  SQLNET-Snippet  : $sqlnetOutPath"
 
 if ($WhatIf) {
     Write-Host "`n-WhatIf gesetzt: Wallet wird NICHT heruntergeladen." -ForegroundColor Yellow
@@ -139,19 +145,79 @@ if (-not (Test-Path $walletZip)) {
 $walletSizeKB = [math]::Round((Get-Item $walletZip).Length / 1KB, 1)
 Write-Host "Wallet gespeichert: $walletZip ($walletSizeKB KB)" -ForegroundColor Green
 
-# --- Optional entpacken --------------------------------------------------
-if ($Unzip) {
-    Write-Host "`n=== Wallet wird entpackt ===" -ForegroundColor Cyan
-    $unzipDir = Join-Path $WalletDir "contents"
-    if (-not (Test-Path $unzipDir)) {
-        New-Item -ItemType Directory -Path $unzipDir | Out-Null
+# --- TNSNAMES.ORA-Eintraege mit MY_WALLET_DIR generieren ------------------
+Write-Host "`n=== TNSNAMES.ORA-Eintraege (mit MY_WALLET_DIR) ===" -ForegroundColor Cyan
+
+$connStrObj = $adbFull.'connection-strings'
+$tnsList    = [System.Collections.Generic.List[string]]::new()
+
+if ($connStrObj) {
+    # Profilenamen und Deskriptoren: erst 'all-connection-strings' (neuere API),
+    # dann Fallback auf bekannte Einzelfelder.
+    if ($connStrObj.'all-connection-strings') {
+        $profiles = $connStrObj.'all-connection-strings'.PSObject.Properties |
+            Select-Object @{N='Name';E={$_.Name}}, @{N='Descriptor';E={$_.Value}}
+    } else {
+        $profiles = @('high','medium','low','tp','tpurgent') | ForEach-Object {
+            $d = $connStrObj.$_
+            if ($d) { [PSCustomObject]@{ Name = $_; Descriptor = $d } }
+        }
     }
-    Expand-Archive -Path $walletZip -DestinationPath $unzipDir -Force
-    $walletFiles = (Get-ChildItem $unzipDir | Select-Object -ExpandProperty Name) -join ", "
-    Write-Host "Entpackt nach : $unzipDir" -ForegroundColor Green
-    Write-Host "Dateien       : $walletFiles"
-    Write-Host ""
-    Write-Host "Hinweis: Das Verzeichnis 'wallet\' ist per .gitignore vom Repository ausgeschlossen." -ForegroundColor Yellow
+
+    $secOld = '(security=(ssl_server_dn_match=yes))'
+    $secNew  = "(security=(ssl_server_dn_match=yes)(MY_WALLET_DIR=$WalletDir))"
+
+    foreach ($p in $profiles) {
+        $alias    = ($resolvedDbName + '_' + $p.Name).ToUpper()
+        $tnsEntry = $p.Descriptor.Replace($secOld, $secNew)
+        $line     = "$alias = $tnsEntry"
+        Write-Host $line
+        Write-Host ""
+        $tnsList.Add($line)
+    }
+} else {
+    Write-Host "Keine Connection-Strings verfuegbar (DB noch nicht AVAILABLE?)." -ForegroundColor Yellow
 }
 
+# --- Sicherer SQLNET.ORA-Block --------------------------------------------
+Write-Host "=== Empfohlener SQLNET.ORA-Block ===" -ForegroundColor Cyan
+$sqlnetBlock = @"
+# SQLNET.ORA -- gemeinsame Oracle Net-Einstellungen
+# Wallet-Verzeichnisse werden pro Verbindung per MY_WALLET_DIR in der
+# tnsnames.ora gesteuert. Keine datenbankspezifischen Wallet-Parameter hier.
+
+NAMES.DIRECTORY_PATH = (TNSNAMES, EZCONNECT)
+
+# Minimale TLS-Version fuer alle TCPS-Verbindungen (nicht DB-spezifisch)
+SSL_VERSION = 1.2 or higher
+
+# NICHT setzen (wuerden alle Verbindungen global beeinflussen):
+#   WALLET_LOCATION = ...
+#   SQLNET.WALLET_OVERRIDE = TRUE
+"@
+Write-Host $sqlnetBlock
+
+# --- Hilfsdateien schreiben -----------------------------------------------
+if ($tnsList.Count -gt 0) {
+    $tnsHeader = "# TNSNAMES.ORA - Eintraege fuer $resolvedDbName (Always Free, OCI)`n" +
+                 "# Erzeugt: $(Get-Date -Format 'yyyy-MM-dd HH:mm')`n" +
+                 "# ADB-OCID: $AdbOcid`n" +
+                 "# Wallet-ZIP: $walletZip`n" +
+                 "#`n" +
+                 "# Voraussetzung: Oracle Client 19c+ (MY_WALLET_DIR-Unterstuetzung)`n" +
+                 "# MY_WALLET_DIR zeigt auf das Verzeichnis, in das das Wallet-ZIP entpackt wurde.`n" +
+                 "# Eintraege in %TNS_ADMIN%\tnsnames.ora kopieren.`n`n"
+    ($tnsHeader + ($tnsList -join "`n`n")) | Set-Content -Path $tnsOutputPath -Encoding ascii
+    Write-Host "`nTNSNAMES-Eintraege : $tnsOutputPath" -ForegroundColor Green
+}
+
+$sqlnetBlock | Set-Content -Path $sqlnetOutPath -Encoding ascii
+Write-Host "SQLNET-Snippet     : $sqlnetOutPath" -ForegroundColor Green
+
+# --- Naechste Schritte ----------------------------------------------------
+Write-Host "`n=== Naechste Schritte ===" -ForegroundColor Cyan
+Write-Host "1. Wallet-ZIP entpacken nach : $WalletDir"
+Write-Host "   (Inhalt: cwallet.sso, ewallet.p12, tnsnames.ora, sqlnet.ora, ...)"
+Write-Host "2. Eintraege aus tnsnames_entries.txt in %TNS_ADMIN%\tnsnames.ora kopieren."
+Write-Host "3. SQLNET.ORA pruefen: sqlnet_safe.txt zeigt, was NICHT gesetzt werden sollte."
 Write-Host "`nFertig." -ForegroundColor Green
