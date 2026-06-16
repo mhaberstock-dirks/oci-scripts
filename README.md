@@ -35,7 +35,7 @@ oci-scripts/
 ```powershell
 .\setup-adb-dev.ps1
 # Trockenlauf:
-.\setup-adb-dev.ps1 -WhatIfOnly
+.\setup-adb-dev.ps1 -WhatIf
 ```
 
 Defaults: Compartment `Markus_Dev`, Group `Grp-ADB-Dev-Admins`, Policy `Policy-ADB-Dev-Admins`
@@ -49,7 +49,7 @@ Defaults: Compartment `Markus_Dev`, Group `Grp-ADB-Dev-Admins`, Policy `Policy-A
 # Ohne Warten auf AVAILABLE:
 .\create-adb-dev.ps1 -NoWait
 # Trockenlauf:
-.\create-adb-dev.ps1 -WhatIfOnly
+.\create-adb-dev.ps1 -WhatIf
 ```
 
 Defaults: Compartment `Markus_Dev`, DisplayName `ADB-Dev`, DbName `ADBDEV`, Workload `OLTP`
@@ -64,7 +64,7 @@ Defaults: Compartment `Markus_Dev`, DisplayName `ADB-Dev`, DbName `ADBDEV`, Work
 # Mit automatischem Entpacken:
 .\get-adb-wallet.ps1 -Unzip
 # Trockenlauf:
-.\get-adb-wallet.ps1 -WhatIfOnly
+.\get-adb-wallet.ps1 -WhatIf
 ```
 
 ### setup-adb-dev.ps1 – weitere Optionen

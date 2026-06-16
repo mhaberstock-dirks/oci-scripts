@@ -58,11 +58,11 @@ $domains = (oci iam domain list --compartment-id $tenancyId | ConvertFrom-Json).
 $domains | Select-Object @{N='Name';E={$_.'display-name'}}, url | Format-Table -AutoSize
 
 Write-Host "`n=== Compartments ===" -ForegroundColor Cyan
-$compartments = (oci iam compartment list | ConvertFrom-Json).data
+$compartments = (oci iam compartment list --compartment-id $tenancyId | ConvertFrom-Json).data
 $compartments | Select-Object name, id | Format-Table -AutoSize
 
 Write-Host "`n=== Groups ===" -ForegroundColor Cyan
-$groups = (oci iam group list | ConvertFrom-Json).data
+$groups = (oci iam group list --compartment-id $tenancyId | ConvertFrom-Json).data
 $groups | Select-Object name, id | Format-Table -AutoSize
 
 # --- OCIDs ermitteln ---------------------------------------------------------
@@ -82,21 +82,28 @@ if ($DomainPrefix -ne "") {
     $groupRef = $GroupName
 }
 
-# --- Policy-Statements erzeugen ---------------------------------------------
+# --- Policy-Statements: JSON als Quelle der Wahrheit -------------------------
+# Beim ersten Aufruf wird die Datei mit Standardwerten erzeugt.
+# Bei jedem weiteren Aufruf wird die bestehende Datei unveraendert verwendet
+# (manuell bearbeiten, um Statements zu aendern; dann Skript erneut ausfuehren).
 $policiesDir = Join-Path $PSScriptRoot "policies"
 if (-not (Test-Path $policiesDir)) {
     New-Item -ItemType Directory -Path $policiesDir | Out-Null
 }
 $statementsPath = Join-Path $policiesDir "$PolicyName.json"
 
-$statements = @(
-    "Allow group $groupRef to manage autonomous-database-family in compartment $CompartmentName",
-    "Allow group $groupRef to manage autonomous-backups in compartment $CompartmentName",
-    "Allow group $groupRef to use virtual-network-family in compartment $CompartmentName"
-)
-
-$statements | ConvertTo-Json | Set-Content -Path $statementsPath -Encoding ascii
-Write-Host "`nStatements-Datei erzeugt: $statementsPath" -ForegroundColor Green
+if (Test-Path $statementsPath) {
+    Write-Host "`nVorhandene Statements-Datei wird verwendet: $statementsPath" -ForegroundColor Yellow
+    Write-Host "  (Zum Aendern: Datei bearbeiten, dann Skript erneut ausfuehren)"
+} else {
+    $statements = @(
+        "Allow group $groupRef to manage autonomous-database-family in compartment $CompartmentName",
+        "Allow group $groupRef to manage autonomous-backups in compartment $CompartmentName",
+        "Allow group $groupRef to manage objects in compartment $CompartmentName"
+    )
+    $statements | ConvertTo-Json | Set-Content -Path $statementsPath -Encoding ascii
+    Write-Host "`nStatements-Datei erstellt: $statementsPath" -ForegroundColor Green
+}
 Get-Content $statementsPath
 
 if ($WhatIfOnly) {

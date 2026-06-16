@@ -70,11 +70,12 @@ $configPath = "$env:USERPROFILE\.oci\config"
 if (-not (Test-Path $configPath)) {
     throw "OCI Config nicht gefunden unter $configPath. Bitte zuerst 'oci setup config' ausfuehren."
 }
+$tenancyId = (Get-Content $configPath | Select-String '^tenancy\s*=' | Select-Object -First 1).ToString().Split('=', 2)[1].Trim()
 
 # --- ADB-OCID ermitteln ---------------------------------------------------
 if (-not $AdbOcid) {
     Write-Host "=== Suche ADB '$DbName' in Compartment '$CompartmentName' ===" -ForegroundColor Cyan
-    $compartments = (oci iam compartment list | ConvertFrom-Json).data
+    $compartments = (oci iam compartment list --compartment-id $tenancyId | ConvertFrom-Json).data
     $devCompId    = ($compartments | Where-Object { $_.name -eq $CompartmentName }).id
     if (-not $devCompId) { throw "Compartment '$CompartmentName' nicht gefunden." }
 

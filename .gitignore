@@ -4,3 +4,4 @@ config
 .oci/
 secrets.ps1
 wallet/
+ADB-Migration-Status.md
